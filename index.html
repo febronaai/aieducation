@@ -141,6 +141,13 @@ body { font-family: var(--mono); background: var(--bg); color: var(--white); min
 .eli5-btn { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; padding: 7px 16px; background: transparent; color: #f472b6; border: 1px solid #f472b6; cursor: pointer; transition: all 0.1s; display: inline-flex; align-items: center; gap: 8px; }
 .eli5-btn:hover { background: rgba(244,114,182,0.08); }
 .eli5-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.rarity { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-left: 6px; }
+.rarity.beginner     { color: #9d9d9d; }
+.rarity.intermediate { color: #4fa3e0; text-shadow: 0 0 8px rgba(79,163,224,0.4); }
+.rarity.advanced     { color: #c069e0; text-shadow: 0 0 8px rgba(192,105,224,0.5); }
+.tag.clickable { cursor: pointer; transition: all 0.1s; }
+.tag.clickable:hover { border-color: var(--accent-l); color: var(--accent-l); }
 </style>
 </head>
 <body>
@@ -283,7 +290,7 @@ body { font-family: var(--mono); background: var(--bg); color: var(--white); min
   </div>
   <div class="filter-row">
     <span class="filter-label">FILTER //</span>
-    <button class="filter-btn active" data-filter="all">ALL</button>
+    <button class="filter-btn active" data-filter="all" aria-pressed="true">ALL</button>
     <button class="filter-btn" data-filter="fundamentals">FUNDAMENTALS</button>
     <button class="filter-btn" data-filter="llm">LLM</button>
     <button class="filter-btn" data-filter="training">TRAINING</button>
@@ -300,7 +307,7 @@ body { font-family: var(--mono); background: var(--bg); color: var(--white); min
     <div class="generate-body">
       <div class="generate-form">
         <input class="generate-input" id="concept-input" type="text" placeholder="e.g. attention mechanism, backpropagation, RLHF, vector database…" maxlength="120" />
-        <button class="generate-btn" id="generate-btn" onclick="generateAnalogy()">GENERATE</button>
+        <button class="generate-btn" id="generate-btn" onclick="generateAnalogy()" aria-label="Generate analogy">GENERATE</button>
       </div>
       <div class="suggestion-row">
         <span class="filter-label">TRY //</span>
@@ -331,6 +338,35 @@ body { font-family: var(--mono); background: var(--bg); color: var(--white); min
 </footer>
 
 <script>
+// CONFIG — swap this one line to switch between Claude artifact and GitHub/Cloudflare
+const API_URL = 'https://royal-butterfly-6c97-aiedagen.pavlovic-sebastian.workers.dev';
+const API_MODEL = 'claude-sonnet-4-5';
+// For GitHub: set API_URL = 'https://royal-butterfly-6c97-aiedagen.pavlovic-sebastian.workers.dev'
+// For GitHub: set API_MODEL = 'claude-sonnet-4-5'
+
+// Fetch with timeout — rejects after ms milliseconds
+async function fetchWithTimeout(url, options, ms = 15000) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Request timed out — the server took too long. Try again.')), ms)
+  );
+  return Promise.race([fetch(url, options), timeout]);
+}
+
+// Friendly error messages
+function friendlyError(err, data) {
+  if (err.name === 'AbortError' || err.message.includes('timed out')) return '// TIMEOUT — The server took too long. Try again in a moment.';
+  if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) return '// CONNECTION ERROR — Check your internet connection and try again.';
+  if (data && data.error) {
+    const type = data.error.type || '';
+    if (type === 'rate_limit_error') return '// RATE LIMIT — Too many requests. Wait a moment and try again.';
+    if (type === 'authentication_error') return '// AUTH ERROR — API key issue. Contact the site owner.';
+    if (type === 'overloaded_error') return '// SERVER BUSY — Claude is overloaded right now. Try again in a moment.';
+    return '// API ERROR — ' + (data.error.message || 'Something went wrong.');
+  }
+  if (err.message.includes('JSON')) return '// PARSE ERROR — Got an unexpected response. Try again.';
+  return '// ERROR — ' + err.message;
+}
+
 async function loadSaved() {
   try {
     const result = await window.storage.get('saved-analogies');
@@ -361,18 +397,18 @@ const ICONS = {
 };
 
 const baseAnalogies = [
-  { iconKey:"car", title:"CAR", sub:"The classic intro analogy", filters:["fundamentals"], items:[{label:"DATA",text:"is the fuel — without it, nothing moves."},{label:"MODEL",text:"is the engine — the core mechanism doing the work."},{label:"TRAINING",text:"is tuning the engine so it runs smoothly."},{label:"INPUT",text:"is you behind the wheel — you steer the direction."},{label:"OUTPUT",text:"is the car getting you where you're trying to go."}], insight:"A powerful engine on bad fuel still breaks down. Quality data matters as much as model architecture.", tags:["#ai/fundamentals","#ai/analogies"] },
-  { iconKey:"recipe", title:"RECIPE", sub:"Great for non-technical audiences", filters:["fundamentals"], items:[{label:"DATA",text:"is the set of recipes — accumulated knowledge the AI learns from."},{label:"MODEL",text:"is the chef — trained to read patterns and produce results."},{label:"TRAINING",text:"is culinary school — thousands of hours of practice on past dishes."},{label:"PROMPT",text:"is the order you place — specifics shape what you get."},{label:"OUTPUT",text:"is the dish — good prompts lead to better meals."}], insight:"The chef can't invent an ingredient they've never seen. AI can't reason about things outside its training data.", tags:["#ai/fundamentals","#ai/analogies"] },
-  { iconKey:"music", title:"JAZZ MUSICIAN", sub:"How generative AI actually works", filters:["llm"], items:[{label:"TRAINING DATA",text:"is every song they've ever heard and studied."},{label:"MODEL",text:"is their musical intuition — internalized patterns, not memorized songs."},{label:"PROMPT",text:"is the key and tempo you call out before they play."},{label:"OUTPUT",text:"is the improvisation — novel, built from deep pattern recognition."},{label:"TEMPERATURE",text:"is how adventurous their solo gets."}], insight:"Jazz musicians don't replay recordings — they generate new music from absorbed patterns. LLMs work the same way: generating token by token, not retrieving stored text.", tags:["#ai/generative","#ai/llm","#ai/analogies"] },
-  { iconKey:"map", title:"CITY & GPS", sub:"Knowledge cutoffs and hallucination", filters:["llm"], items:[{label:"TRAINING DATA",text:"is the map — drawn at a point in time, may have outdated roads."},{label:"MODEL",text:"is the GPS — navigates using that map confidently."},{label:"CUTOFF",text:"is when the map was last printed — new buildings won't appear."},{label:"RAG",text:"is a live traffic feed layered on top of the old map."},{label:"HALLUCINATION",text:"is confidently routing you down a road that no longer exists."}], insight:"Confidence does not equal accuracy. AI speaks fluently even when its map is wrong. Always verify high-stakes outputs.", tags:["#ai/limitations","#ai/rag","#ai/analogies"] },
-  { iconKey:"plant", title:"PLANT & SUNLIGHT", sub:"Fine-tuning and specialization", filters:["training"], items:[{label:"PRE-TRAINED",text:"is a mature plant in general soil — robust, adaptable."},{label:"FINE-TUNE DATA",text:"is specialized fertilizer — shapes growth in a specific direction."},{label:"OVERFITTING",text:"is forcing the plant into a tiny pot — it stops being flexible."},{label:"YOUR DOMAIN",text:"is the climate — the plant thrives where conditions match its training."},{label:"INFERENCE",text:"is harvesting — you pick the fruit the plant learned to produce."}], insight:"Fine-tuning doesn't rebuild the plant from seed. It nudges an already-capable model toward a specific task.", tags:["#ai/fine-tuning","#ai/training","#ai/analogies"] },
-  { iconKey:"employee", title:"NEW EMPLOYEE", sub:"Prompt engineering", filters:["fundamentals"], items:[{label:"MODEL",text:"is a brilliant new hire — capable but unfamiliar with your context."},{label:"PROMPT",text:"is the briefing — vague instructions produce vague work."},{label:"SYSTEM PROMPT",text:"is the job description and company culture doc."},{label:"FEW-SHOT",text:"is showing them three past examples of exactly what you want."},{label:"CHAIN-OF-THOUGHT",text:"is asking them to show their working before giving the final answer."}], insight:"You wouldn't hire someone exceptional and give them zero context. Prompt quality directly determines output quality.", tags:["#ai/prompting","#ai/fundamentals","#ai/analogies"] },
-  { iconKey:"robot", title:"AI AGENT", sub:"Agentic AI behaviour", filters:["llm"], items:[{label:"GOAL",text:"is the brief — the clearer it is, the better the result."},{label:"TOOLS",text:"(web search, code, APIs) are the resources on their desk."},{label:"PLANNING",text:"is breaking the project into steps before diving in."},{label:"MEMORY",text:"is the notepad — short-term during the task, long-term across sessions."},{label:"HUMAN CHECK",text:"is reviewing before they send the email or submit the PR."}], insight:"Autonomy is powerful but risky without checkpoints. The best agentic setups keep humans in the loop for high-stakes actions.", tags:["#ai/agents","#ai/autonomy","#ai/analogies"] },
-  { iconKey:"mirror", title:"WARPED MIRROR", sub:"AI bias & fairness", filters:["safety"], items:[{label:"TRAINING DATA",text:"is the mirror's surface — shaped by who made it and what it reflected."},{label:"BIASED DATA",text:"means the mirror distorts certain faces more than others."},{label:"MODEL",text:"faithfully reflects the distortions — it doesn't know they're there."},{label:"AUDITING",text:"is holding up a ruler to check whether the mirror is flat."},{label:"DEBIASING",text:"is grinding the surface down — slow, imperfect, but essential."}], insight:"AI doesn't invent bias from nothing — it amplifies what's already in the data. Garbage in, garbage out, at scale.", tags:["#ai/bias","#ai/fairness","#ai/ethics","#ai/analogies"] },
-  { iconKey:"whiteboard", title:"WHITEBOARD", sub:"Context windows & memory", filters:["llm"], items:[{label:"EACH TURN",text:"writes more onto the whiteboard."},{label:"CONTEXT LIMIT",text:"is the size of the board — once full, older notes get erased."},{label:"MODEL",text:"can only reason about what's currently on the board."},{label:"LONG CONTEXT",text:"is a bigger whiteboard — not infinite memory."},{label:"RAG",text:"is pinning photographs of previous whiteboards back up when needed."}], insight:"LLMs don't have memory between sessions by default. Everything they know about your conversation lives only on the current whiteboard.", tags:["#ai/llm","#ai/context-window","#ai/rag","#ai/analogies"] },
-  { iconKey:"pin", title:"MAP OF MEANING", sub:"Embeddings & semantic search", filters:["llm"], items:[{label:"EVERY WORD",text:"gets plotted as a point on a vast invisible map."},{label:"PROXIMITY",text:"reflects similarity — 'cat' and 'kitten' land close together."},{label:"DISTANCE",text:"reflects difference — 'cat' and 'interest rate' are far apart."},{label:"SEMANTIC SEARCH",text:"is asking 'show me everything near this point' instead of matching keywords."},{label:"MODEL",text:"navigates this map to understand relationships, not just words."}], insight:"This is why AI can find 'a four-legged furry pet' when you search 'cat' — it understands meaning, not just spelling.", tags:["#ai/embeddings","#ai/vectors","#ai/semantic-search","#ai/analogies"] },
-  { iconKey:"compass", title:"POWERFUL GENIE", sub:"AI alignment & safety", filters:["safety"], items:[{label:"CAPABILITY",text:"is how many wishes the genie can grant — rapidly growing."},{label:"ALIGNMENT",text:"is ensuring the genie grants what you meant, not just what you said."},{label:"MISALIGNMENT",text:"is 'make me rich' solved by robbing a bank — technically correct, deeply wrong."},{label:"RLHF",text:"is teaching the genie which wishes lead to outcomes humans actually like."},{label:"CORRIGIBILITY",text:"is the genie accepting 'stop, that's not what I meant' — harder than it sounds."}], insight:"The harder alignment problem isn't whether AI will be evil — it's whether AI will be precisely, reliably good at understanding what we actually value.", tags:["#ai/alignment","#ai/safety","#ai/rlhf","#ai/analogies"] },
-  { iconKey:"eye", title:"DETECTIVE", sub:"Multimodal AI", filters:["fundamentals"], items:[{label:"TEXT-ONLY",text:"is a detective who only reads case files — powerful, but limited."},{label:"VISION",text:"adds the ability to examine the crime scene photograph directly."},{label:"AUDIO",text:"lets them listen to the witness recording, not just read a transcript."},{label:"MULTIMODAL",text:"is connecting clues across all senses to build one coherent picture."},{label:"YOUR INPUT",text:"can now be a photo, a voice note, a document — not just typed words."}], insight:"Multimodal doesn't mean the model has separate modes — at its best it reasons across all inputs simultaneously, the way humans naturally do.", tags:["#ai/multimodal","#ai/vision","#ai/fundamentals","#ai/analogies"] }
+  { iconKey:"car", title:"CAR", difficulty:"beginner", sub:"The classic intro analogy", filters:["fundamentals"], items:[{label:"DATA",text:"is the fuel — without it, nothing moves."},{label:"MODEL",text:"is the engine — the core mechanism doing the work."},{label:"TRAINING",text:"is tuning the engine so it runs smoothly."},{label:"INPUT",text:"is you behind the wheel — you steer the direction."},{label:"OUTPUT",text:"is the car getting you where you're trying to go."}], insight:"A powerful engine on bad fuel still breaks down. Quality data matters as much as model architecture.", tags:["#ai/fundamentals","#ai/analogies"] },
+  { iconKey:"recipe", title:"RECIPE", difficulty:"beginner", sub:"Great for non-technical audiences", filters:["fundamentals"], items:[{label:"DATA",text:"is the set of recipes — accumulated knowledge the AI learns from."},{label:"MODEL",text:"is the chef — trained to read patterns and produce results."},{label:"TRAINING",text:"is culinary school — thousands of hours of practice on past dishes."},{label:"PROMPT",text:"is the order you place — specifics shape what you get."},{label:"OUTPUT",text:"is the dish — good prompts lead to better meals."}], insight:"The chef can't invent an ingredient they've never seen. AI can't reason about things outside its training data.", tags:["#ai/fundamentals","#ai/analogies"] },
+  { iconKey:"music", title:"JAZZ MUSICIAN", difficulty:"beginner", sub:"How generative AI actually works", filters:["llm"], items:[{label:"TRAINING DATA",text:"is every song they've ever heard and studied."},{label:"MODEL",text:"is their musical intuition — internalized patterns, not memorized songs."},{label:"PROMPT",text:"is the key and tempo you call out before they play."},{label:"OUTPUT",text:"is the improvisation — novel, built from deep pattern recognition."},{label:"TEMPERATURE",text:"is how adventurous their solo gets."}], insight:"Jazz musicians don't replay recordings — they generate new music from absorbed patterns. LLMs work the same way: generating token by token, not retrieving stored text.", tags:["#ai/generative","#ai/llm","#ai/analogies"] },
+  { iconKey:"map", title:"CITY & GPS", difficulty:"beginner", sub:"Knowledge cutoffs and hallucination", filters:["llm"], items:[{label:"TRAINING DATA",text:"is the map — drawn at a point in time, may have outdated roads."},{label:"MODEL",text:"is the GPS — navigates using that map confidently."},{label:"CUTOFF",text:"is when the map was last printed — new buildings won't appear."},{label:"RAG",text:"is a live traffic feed layered on top of the old map."},{label:"HALLUCINATION",text:"is confidently routing you down a road that no longer exists."}], insight:"Confidence does not equal accuracy. AI speaks fluently even when its map is wrong. Always verify high-stakes outputs.", tags:["#ai/limitations","#ai/rag","#ai/analogies"] },
+  { iconKey:"plant", title:"PLANT & SUNLIGHT", difficulty:"intermediate", sub:"Fine-tuning and specialization", filters:["training"], items:[{label:"PRE-TRAINED",text:"is a mature plant in general soil — robust, adaptable."},{label:"FINE-TUNE DATA",text:"is specialized fertilizer — shapes growth in a specific direction."},{label:"OVERFITTING",text:"is forcing the plant into a tiny pot — it stops being flexible."},{label:"YOUR DOMAIN",text:"is the climate — the plant thrives where conditions match its training."},{label:"INFERENCE",text:"is harvesting — you pick the fruit the plant learned to produce."}], insight:"Fine-tuning doesn't rebuild the plant from seed. It nudges an already-capable model toward a specific task.", tags:["#ai/fine-tuning","#ai/training","#ai/analogies"] },
+  { iconKey:"employee", title:"NEW EMPLOYEE", difficulty:"beginner", sub:"Prompt engineering", filters:["fundamentals"], items:[{label:"MODEL",text:"is a brilliant new hire — capable but unfamiliar with your context."},{label:"PROMPT",text:"is the briefing — vague instructions produce vague work."},{label:"SYSTEM PROMPT",text:"is the job description and company culture doc."},{label:"FEW-SHOT",text:"is showing them three past examples of exactly what you want."},{label:"CHAIN-OF-THOUGHT",text:"is asking them to show their working before giving the final answer."}], insight:"You wouldn't hire someone exceptional and give them zero context. Prompt quality directly determines output quality.", tags:["#ai/prompting","#ai/fundamentals","#ai/analogies"] },
+  { iconKey:"robot", title:"AI AGENT", difficulty:"intermediate", sub:"Agentic AI behaviour", filters:["llm"], items:[{label:"GOAL",text:"is the brief — the clearer it is, the better the result."},{label:"TOOLS",text:"(web search, code, APIs) are the resources on their desk."},{label:"PLANNING",text:"is breaking the project into steps before diving in."},{label:"MEMORY",text:"is the notepad — short-term during the task, long-term across sessions."},{label:"HUMAN CHECK",text:"is reviewing before they send the email or submit the PR."}], insight:"Autonomy is powerful but risky without checkpoints. The best agentic setups keep humans in the loop for high-stakes actions.", tags:["#ai/agents","#ai/autonomy","#ai/analogies"] },
+  { iconKey:"mirror", title:"WARPED MIRROR", difficulty:"intermediate", sub:"AI bias & fairness", filters:["safety"], items:[{label:"TRAINING DATA",text:"is the mirror's surface — shaped by who made it and what it reflected."},{label:"BIASED DATA",text:"means the mirror distorts certain faces more than others."},{label:"MODEL",text:"faithfully reflects the distortions — it doesn't know they're there."},{label:"AUDITING",text:"is holding up a ruler to check whether the mirror is flat."},{label:"DEBIASING",text:"is grinding the surface down — slow, imperfect, but essential."}], insight:"AI doesn't invent bias from nothing — it amplifies what's already in the data. Garbage in, garbage out, at scale.", tags:["#ai/bias","#ai/fairness","#ai/ethics","#ai/analogies"] },
+  { iconKey:"whiteboard", title:"WHITEBOARD", difficulty:"intermediate", sub:"Context windows & memory", filters:["llm"], items:[{label:"EACH TURN",text:"writes more onto the whiteboard."},{label:"CONTEXT LIMIT",text:"is the size of the board — once full, older notes get erased."},{label:"MODEL",text:"can only reason about what's currently on the board."},{label:"LONG CONTEXT",text:"is a bigger whiteboard — not infinite memory."},{label:"RAG",text:"is pinning photographs of previous whiteboards back up when needed."}], insight:"LLMs don't have memory between sessions by default. Everything they know about your conversation lives only on the current whiteboard.", tags:["#ai/llm","#ai/context-window","#ai/rag","#ai/analogies"] },
+  { iconKey:"pin", title:"MAP OF MEANING", difficulty:"advanced", sub:"Embeddings & semantic search", filters:["llm"], items:[{label:"EVERY WORD",text:"gets plotted as a point on a vast invisible map."},{label:"PROXIMITY",text:"reflects similarity — 'cat' and 'kitten' land close together."},{label:"DISTANCE",text:"reflects difference — 'cat' and 'interest rate' are far apart."},{label:"SEMANTIC SEARCH",text:"is asking 'show me everything near this point' instead of matching keywords."},{label:"MODEL",text:"navigates this map to understand relationships, not just words."}], insight:"This is why AI can find 'a four-legged furry pet' when you search 'cat' — it understands meaning, not just spelling.", tags:["#ai/embeddings","#ai/vectors","#ai/semantic-search","#ai/analogies"] },
+  { iconKey:"compass", title:"POWERFUL GENIE", difficulty:"advanced", sub:"AI alignment & safety", filters:["safety"], items:[{label:"CAPABILITY",text:"is how many wishes the genie can grant — rapidly growing."},{label:"ALIGNMENT",text:"is ensuring the genie grants what you meant, not just what you said."},{label:"MISALIGNMENT",text:"is 'make me rich' solved by robbing a bank — technically correct, deeply wrong."},{label:"RLHF",text:"is teaching the genie which wishes lead to outcomes humans actually like."},{label:"CORRIGIBILITY",text:"is the genie accepting 'stop, that's not what I meant' — harder than it sounds."}], insight:"The harder alignment problem isn't whether AI will be evil — it's whether AI will be precisely, reliably good at understanding what we actually value.", tags:["#ai/alignment","#ai/safety","#ai/rlhf","#ai/analogies"] },
+  { iconKey:"eye", title:"DETECTIVE", difficulty:"beginner", sub:"Multimodal AI", filters:["fundamentals"], items:[{label:"TEXT-ONLY",text:"is a detective who only reads case files — powerful, but limited."},{label:"VISION",text:"adds the ability to examine the crime scene photograph directly."},{label:"AUDIO",text:"lets them listen to the witness recording, not just read a transcript."},{label:"MULTIMODAL",text:"is connecting clues across all senses to build one coherent picture."},{label:"YOUR INPUT",text:"can now be a photo, a voice note, a document — not just typed words."}], insight:"Multimodal doesn't mean the model has separate modes — at its best it reasons across all inputs simultaneously, the way humans naturally do.", tags:["#ai/multimodal","#ai/vision","#ai/fundamentals","#ai/analogies"] }
 ];
 
 let allAnalogies = [...baseAnalogies];
@@ -423,17 +459,17 @@ function cardHTML(a, idx) {
 
   return `
   <div class="${cls}" id="card-${idx}">
-    <div class="card-header" onclick="toggle(${idx})" role="button" aria-expanded="false">
+    <div class="card-header" onclick="toggle(${idx})" role="button" aria-expanded="false" aria-controls="card-body-${idx}" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' ')toggle(${idx})">
       <div class="card-icon">${ICONS[a.iconKey] || ICONS.generated}</div>
       <div class="card-meta">
         <div class="card-title">${a.title}${badge}</div>
-        <div class="card-sub">${a.sub}${a.concept ? ' <span style="color:var(--faint);letter-spacing:0.06em">// ' + a.concept.toUpperCase() + '</span>' : ''}</div>
+        <div class="card-sub">${a.sub}${a.concept ? ' <span style="color:var(--faint);letter-spacing:0.06em">// ' + a.concept.toUpperCase() + '</span>' : ''}${a.difficulty ? ' <span class="rarity ' + a.difficulty + '" title="' + a.difficulty.charAt(0).toUpperCase() + a.difficulty.slice(1) + '">' + (a.difficulty === 'beginner' ? '1.0' : a.difficulty === 'intermediate' ? '2.0' : '3.0') + '</span>' : ''}</div>
       </div>
       <svg class="chevron" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <path d="M6 4 L10 8 L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
       </svg>
     </div>
-    <div class="card-body">
+    <div class="card-body" id="card-body-${idx}">
       ${pendingNotice}
       <ul class="analogy-list">
         ${a.items.map(it => `<li><span class="item-label">${it.label}</span><span class="item-text">${it.text}</span></li>`).join('')}
@@ -442,7 +478,7 @@ function cardHTML(a, idx) {
         <div class="callout-label">// KEY INSIGHT</div>
         <div class="callout-text">${a.insight}</div>
       </div>
-      <div class="tag-row">${a.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+      <div class="tag-row">${a.tags.map(t=>`<span class="tag clickable" onclick="filterByTag('${t}')" title="Filter by ${t}">${t}</span>`).join('')}</div>
       <div class="eli5-block" id="eli5-block-${idx}">
         <div class="eli5-header">
           <span class="eli5-label">// ELI5 — EXPLAIN LIKE I'M 5</span>
@@ -478,9 +514,20 @@ function cardHTML(a, idx) {
   </div>`;
 }
 
-function buildCards(filter) {
+function filterByTag(tag) {
+  // Switch to all filter and highlight matching cards
+  activeFilter = 'all';
+  document.querySelectorAll('.filter-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+  document.querySelector('[data-filter="all"]').classList.add('active');
+  document.querySelector('[data-filter="all"]').setAttribute('aria-pressed','true');
+  buildCards('all', tag);
+  document.getElementById('deck-label').textContent = 'FILTERING BY ' + tag.toUpperCase();
+}
+
+function buildCards(filter, highlightTag) {
   const container = document.getElementById('cards');
-  const list = filter === 'all' ? allAnalogies : allAnalogies.filter(a => a.filters.includes(filter));
+  let list = filter === 'all' ? allAnalogies : allAnalogies.filter(a => a.filters.includes(filter));
+  if (highlightTag) list = list.filter(a => a.tags && a.tags.includes(highlightTag));
   container.innerHTML = list.map(a => cardHTML(a, allAnalogies.indexOf(a))).join('');
 }
 
@@ -520,7 +567,10 @@ function discardAnalogy(idx) {
 
 function toggle(i) {
   const card = document.getElementById('card-' + i);
-  if (card) card.classList.toggle('open');
+  if (!card) return;
+  card.classList.toggle('open');
+  const header = card.querySelector('.card-header');
+  if (header) header.setAttribute('aria-expanded', card.classList.contains('open') ? 'true' : 'false');
 }
 
 function copyMd(e, i) {
@@ -558,31 +608,35 @@ async function generateEli5(idx) {
   btn.innerHTML = `<span class="eli5-dots"><span></span><span></span><span></span></span> THINKING...`;
 
   const analogyText = a.items.map(it => it.label + ' ' + it.text).join('. ');
-  const prompt = `Explain the AI concept behind this analogy in the simplest possible way — as if explaining to a 5-year-old or someone with zero technical knowledge. Use everyday language, a very short story or scenario, and no jargon whatsoever. Keep it to 3-4 sentences max. Be warm and playful.
+  const prompt = `Explain this AI concept as if talking to a curious 10-year-old who has never heard of AI. Rules: exactly 3 sentences, no jargon whatsoever, must mention one concrete everyday object they would recognise, and the final sentence must explain why this matters in real life. Warm and friendly tone.
 
-The analogy is: "${a.title} — ${a.sub}". Key mappings: ${analogyText}. Core insight: ${a.insight}
+The concept: "${a.title} — ${a.sub}". Core idea: ${a.insight}
 
-Respond with ONLY the plain text explanation, no labels, no formatting.`;
+Respond with ONLY the 3-sentence plain text explanation. Nothing else.`;
 
+  let eli5Data = null;
   try {
-    const response = await fetch('https://royal-butterfly-6c97-aiedagen.pavlovic-sebastian.workers.dev', {
+    const response = await fetchWithTimeout(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: API_MODEL,
         max_tokens: 300,
         messages: [{ role: 'user', content: prompt }]
       })
-    });
-    const data = await response.json();
-    const text = data.content.map(i => i.text || '').join('').trim();
+    }, 12000);
+    eli5Data = await response.json();
+    if (!eli5Data.content) throw new Error(eli5Data.error ? eli5Data.error.message : 'No content returned');
+    const text = eli5Data.content.map(i => i.text || '').join('').trim();
     a.eli5 = text;
     contentEl.textContent = text;
     block.classList.add('visible');
     btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="5" x2="8" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><line x1="8" y1="10" x2="8" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/></svg> ELI5`;
     btn.disabled = false;
   } catch(err) {
-    btn.innerHTML = '// ERROR — TRY AGAIN';
+    btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="5" x2="8" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><line x1="8" y1="10" x2="8" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/></svg> ELI5`;
+    contentEl.textContent = friendlyError(err, eli5Data);
+    block.classList.add('visible');
     btn.disabled = false;
   }
 }
@@ -640,23 +694,30 @@ Respond ONLY with a valid JSON object. No markdown backticks, no preamble, no ex
 Rules:
 - Exactly 4-6 items
 - Each item.text starts with "is" or "are"
-- The metaphor must be concrete and universally recognizable
-- insight must be genuinely surprising or counterintuitive, not a restatement
-- tags: include relevant slug(s) for the concept`;
+- The metaphor must be concrete and universally recognizable (not abstract)
+- insight must be genuinely surprising or counterintuitive — not a restatement of the analogy
+- tags: include relevant slug(s) for the concept
+- difficulty: "beginner" (no prior knowledge needed), "intermediate" (some familiarity helpful), or "advanced" (assumes technical background)
 
+Quality check — before responding, score your analogy 1-5 on: (a) does the metaphor genuinely map to ALL the AI terms, not just some? (b) would someone unfamiliar with AI actually understand it? (c) is the insight truly non-obvious? If any score is below 4, rethink the metaphor. Only respond when all three score 4 or 5.
+
+Add "difficulty" field to your JSON response.`;
+
+  let genData = null;
   try {
-    const response = await fetch('https://royal-butterfly-6c97-aiedagen.pavlovic-sebastian.workers.dev', {
+    const response = await fetchWithTimeout(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: API_MODEL,
         max_tokens: 1000,
         messages: [{ role: 'user', content: prompt }]
       })
-    });
+    }, 20000);
 
-    const data = await response.json();
-    const text = data.content.map(i => i.text || '').join('');
+    genData = await response.json();
+    if (!genData.content) throw new Error(genData.error ? genData.error.message : 'No content returned');
+    const text = genData.content.map(i => i.text || '').join('');
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
 
@@ -681,6 +742,7 @@ Rules:
       items: Array.isArray(parsed.items) ? parsed.items : [],
       insight: parsed.insight || '',
       tags: Array.isArray(parsed.tags) ? parsed.tags : ['#ai/analogies'],
+      difficulty: parsed.difficulty || 'intermediate',
       generated: true,
       concept: concept
     };
@@ -704,7 +766,7 @@ Rules:
   } catch (err) {
     genCard.style.display = 'none';
     errCard.style.display = 'block';
-    errCard.textContent = '// ERROR — Failed to generate analogy. Check your connection and try again. (' + err.message + ')';
+    errCard.textContent = friendlyError(err, genData);
     btn.disabled = false;
   }
 }
@@ -716,8 +778,9 @@ document.getElementById('concept-input').addEventListener('keydown', function(e)
 document.querySelectorAll('.filter-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
     activeFilter = btn.dataset.filter;
-    document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
     btn.classList.add('active');
+    btn.setAttribute('aria-pressed','true');
     buildCards(activeFilter);
   });
 });
